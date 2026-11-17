@@ -1,0 +1,49 @@
+# Fastest Slideshow
+
+Tiny native Mac image viewer (one Swift file, about 50 KB zipped). Apple Silicon, macOS 13+.
+
+Opens a folder or image full screen on the first image, paused.
+
+## Keys
+
+| Key | Action |
+| --- | --- |
+| Right / `j` | Next image |
+| Left / `k` | Previous image |
+| Control or Shift + Left / Right / `j` / `k` | Skip 10 images |
+| `f` | Toggle full screen |
+| `i` | Toggle metadata sidebar |
+| Space | Play / pause (3 seconds per image) |
+| Escape | Close the image (app keeps running) |
+| Cmd-O / Cmd-Q | Open / quit |
+
+Control + arrows are macOS Mission Control shortcuts by default. If they switch
+Spaces instead of skipping, use Shift + arrows, or turn those shortcuts off in
+System Settings > Keyboard > Keyboard Shortcuts > Mission Control.
+
+## Opening from Finder
+
+- Right-click a folder or image > Open With > Fastest Slideshow.
+- Shortcuts app: new shortcut > "Open File" action > Open "Shortcut Input" with
+  Fastest Slideshow > enable "Use as Quick Action" > Finder. It then appears
+  under right-click > Quick Actions, and can be given a keyboard shortcut.
+- Terminal: `open -a "Fastest Slideshow" /path/to/folder`
+
+Opening one image shows that image and lets you browse the rest of its folder.
+Opening a folder shows the images directly inside it (no subfolders).
+
+## Build
+
+```bash
+./build.sh            # ad-hoc signed, for this Mac
+./build.sh --release  # Developer ID signed + notarized, for other Macs
+```
+
+Output: `builds/FastestSlideshow-<version>.zip`. Version lives in `Info.plist`.
+
+Headless self-check:
+
+```bash
+B="build/Fastest Slideshow.app/Contents/MacOS/FastestSlideshow"
+"$B" --check /path/to/image-or-folder
+```
