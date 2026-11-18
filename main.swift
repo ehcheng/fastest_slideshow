@@ -189,7 +189,13 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let badge = NSTextField(labelWithString: "")
     let cache = NSCache<NSURL, CGImage>()
     let decodeQueue = OperationQueue()
-    let slideSeconds = 3.0
+    var seconds = UserDefaults.standard.object(forKey: "seconds") as? Int ?? 4  // per image, remembered
+    let controls = NSView()
+    let secondsLabel = NSTextField(labelWithString: "")
+    let secondsGroup = NSStackView()
+    lazy var playButton = button("play.fill", 22, #selector(togglePlaying))
+    var hideTimer: Timer?
+    let help = NSView()
     let sidebarWidth: CGFloat = 440
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -199,7 +205,11 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         buildWindow()
         NSApp.servicesProvider = self
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [unowned self] in self.key($0) ? nil : $0 }
-        // Command line: FastestSlideshow [--info] <file-or-folder>...
+        NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown]) { [unowned self] e in
+            if e.window === self.window, !self.files.isEmpty { self.showControls() }
+            return e
+        }
+        // Command line: "Fastest Slideshow" [--info] <file-or-folder>...
         showInfo = CommandLine.arguments.contains("--info")
         let paths = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") && FileManager.default.fileExists(atPath: $0) }
         if !paths.isEmpty { open(paths.map { URL(fileURLWithPath: $0) }) }
@@ -279,6 +289,87 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         badge.layer?.masksToBounds = true
         badge.alphaValue = 0
         window.contentView?.addSubview(badge)
+        buildControls()
+        buildHelp()
+    }
+
+    func symbol(_ name: String, _ size: CGFloat) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: name)?
+            .withSymbolConfiguration(.init(pointSize: size, weight: .medium))
+    }
+
+    func button(_ name: String, _ size: CGFloat, _ action: Selector) -> NSButton {
+        let b = NSButton(image: symbol(name, size) ?? NSImage(), target: self, action: action)
+        b.isBordered = false
+        b.contentTintColor = NSColor(white: 1, alpha: 0.85)
+        b.refusesFirstResponder = true
+        return b
+    }
+
+    /// Lower-right pill: [4s ▲▼] ▶. Appears on mouse movement, fades after 2 s idle.
+    func buildControls() {
+        let arrows = NSStackView(views: [
+            button("chevron.up", 11, #selector(moreSeconds)), button("chevron.down", 11, #selector(lessSeconds)),
+        ])
+        arrows.orientation = .vertical
+        arrows.spacing = 3
+        secondsLabel.font = mono(17, .medium)
+        secondsLabel.textColor = NSColor(white: 1, alpha: 0.85)
+        secondsGroup.addArrangedSubview(secondsLabel)
+        secondsGroup.addArrangedSubview(arrows)
+        secondsGroup.spacing = 6
+        let row = NSStackView(views: [secondsGroup, playButton])
+        row.spacing = 14
+        row.edgeInsets = NSEdgeInsets(top: 10, left: 18, bottom: 10, right: 18)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        controls.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: controls.leadingAnchor), row.trailingAnchor.constraint(equalTo: controls.trailingAnchor),
+            row.topAnchor.constraint(equalTo: controls.topAnchor), row.bottomAnchor.constraint(equalTo: controls.bottomAnchor),
+        ])
+        controls.wantsLayer = true
+        controls.layer?.backgroundColor = NSColor(white: 0, alpha: 0.45).cgColor
+        controls.layer?.cornerRadius = 14
+        controls.isHidden = true
+        controls.alphaValue = 0
+        window.contentView?.addSubview(controls)
+        window.acceptsMouseMovedEvents = true
+        refreshControls()
+    }
+
+    func buildHelp() {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        let style = NSMutableParagraphStyle()
+        style.paragraphSpacing = 6
+        let text = NSMutableAttributedString(string: "FASTEST SLIDESHOW\n\n", attributes: [
+            .font: mono(15, .bold), .foregroundColor: cyan, .kern: 3,
+        ])
+        for (keys, action) in [
+            ("→  J", "Next image"), ("←  K", "Previous image"), ("Shift or Ctrl + ← →", "Skip 10 images"),
+            ("S  Space", "Play / pause slideshow"), ("A  D", "Fewer / more seconds per image"),
+            ("F  Enter", "Toggle full screen"), ("I", "Image info sidebar"), ("?", "This sheet"),
+            ("Esc", "Close image"), ("⌘O  ⌘Q", "Open / quit"),
+        ] {
+            // Monospaced font, so space padding makes the columns.
+            text.append(NSAttributedString(string: keys.padding(toLength: 23, withPad: " ", startingAt: 0),
+                                           attributes: [.font: mono(13, .medium), .foregroundColor: cyan, .paragraphStyle: style]))
+            text.append(NSAttributedString(string: action + "\n",
+                                           attributes: [.font: mono(13), .foregroundColor: white, .paragraphStyle: style]))
+        }
+        text.append(NSAttributedString(string: "\nEric Cheng | http://echeng.com\nVersion \(version)",
+                                       attributes: [.font: mono(11), .foregroundColor: dim, .paragraphStyle: style]))
+        let label = NSTextField(labelWithAttributedString: text)
+        label.sizeToFit()
+        label.setFrameOrigin(NSPoint(x: 36, y: 30))
+        help.setFrameSize(NSSize(width: label.frame.width + 72, height: label.frame.height + 60))
+        help.wantsLayer = true
+        help.layer?.backgroundColor = NSColor(srgbRed: 0.02, green: 0.05, blue: 0.08, alpha: 0.94).cgColor
+        help.layer?.borderColor = cyan.withAlphaComponent(0.6).cgColor
+        help.layer?.borderWidth = 1
+        help.layer?.cornerRadius = 16
+        help.addSubview(label)
+        help.isHidden = true
+        window.contentView?.addSubview(help)
     }
 
     // MARK: Open / close
@@ -319,6 +410,9 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         files = []
         imageView.layer?.contents = nil
         NSApp.presentationOptions = []
+        hideTimer?.invalidate()
+        controls.isHidden = true
+        help.isHidden = true
     }
 
     // MARK: Layout
@@ -351,6 +445,9 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         sidebar.frame = NSRect(x: area.maxX - side, y: 0, width: side, height: area.height)
         imageView.frame = NSRect(x: 0, y: 0, width: area.width - side, height: area.height)
         badge.setFrameOrigin(NSPoint(x: imageView.frame.midX - badge.frame.width / 2, y: imageView.frame.midY - badge.frame.height / 2))
+        let size = controls.fittingSize
+        controls.frame = NSRect(x: imageView.frame.maxX - size.width - 28, y: 28, width: size.width, height: size.height)
+        help.setFrameOrigin(NSPoint(x: area.midX - help.frame.width / 2, y: area.midY - help.frame.height / 2))
     }
 
     // MARK: Display
@@ -406,30 +503,72 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         badge.layer?.add(fade, forKey: "flash")  // same key: a new jump restarts the timing
     }
 
-    func stopPlaying() { timer?.invalidate(); timer = nil }
+    // MARK: Slideshow
 
-    func togglePlaying() {
-        if timer != nil { return stopPlaying() }
-        timer = Timer.scheduledTimer(withTimeInterval: slideSeconds, repeats: true) { [unowned self] _ in
-            if self.index >= self.files.count - 1 { self.stopPlaying() } else { self.step(1) }
+    @objc func togglePlaying() { timer == nil ? startPlaying() : stopPlaying() }
+
+    func startPlaying() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: TimeInterval(seconds), repeats: true) { [unowned self] _ in
+            self.index = (self.index + 1) % self.files.count  // loops at the end
+            self.show()
+        }
+        refreshControls()
+    }
+
+    func stopPlaying() { timer?.invalidate(); timer = nil; refreshControls() }
+
+    func setSeconds(_ value: Int) {
+        seconds = min(max(value, 1), 99)
+        UserDefaults.standard.set(seconds, forKey: "seconds")
+        if timer != nil { startPlaying() } else { refreshControls() }  // restart so the new pace applies now
+    }
+
+    @objc func moreSeconds() { setSeconds(seconds + 1) }
+    @objc func lessSeconds() { setSeconds(seconds - 1) }
+
+    func refreshControls() {
+        let playing = timer != nil
+        playButton.image = symbol(playing ? "pause.fill" : "play.fill", 22)
+        secondsLabel.stringValue = "\(seconds)s"
+        secondsGroup.isHidden = !playing  // seconds only matter while playing
+        layout()
+    }
+
+    func showControls() {
+        controls.isHidden = false
+        controls.animator().alphaValue = 1
+        hideTimer?.invalidate()
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { [unowned self] _ in
+            NSAnimationContext.runAnimationGroup({
+                $0.duration = 0.4
+                self.controls.animator().alphaValue = 0
+            }, completionHandler: {
+                // Hidden views take no clicks; skip if the mouse moved again mid-fade.
+                if self.controls.alphaValue == 0 { self.controls.isHidden = true }
+            })
         }
     }
 
     /// Returns true if the key was handled.
     func key(_ e: NSEvent) -> Bool {
         guard e.window === window, !files.isEmpty, !e.modifierFlags.contains(.command) else { return false }
+        if !help.isHidden { help.isHidden = true; return true }  // any key dismisses the sheet
         let jump = e.modifierFlags.intersection([.control, .shift]).isEmpty ? 1 : 10
         switch e.keyCode {
         case 123: step(-jump)  // left
         case 124: step(jump)  // right
         case 36, 76: fullScreen.toggle(); applyMode(on: window.screen)  // return, keypad enter
         case 53: closeImage()  // escape
-        case 49: togglePlaying()  // space
         default:
             switch e.charactersIgnoringModifiers?.lowercased() {
             case "j": step(jump)
             case "k": step(-jump)
             case "f": fullScreen.toggle(); applyMode(on: window.screen)
+            case "s", " ": togglePlaying(); flash(timer != nil ? "▶ \(seconds)s" : "❚❚")
+            case "a": lessSeconds(); flash("\(seconds)s")
+            case "d": moreSeconds(); flash("\(seconds)s")
+            case "?": help.isHidden = false
             case "i": showInfo.toggle(); layout(); show()
             default: return false
             }
@@ -440,7 +579,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 // MARK: - Entry
 
-// Headless self-check: FastestSlideshow --check <file-or-folder>
+// Headless self-check: "Fastest Slideshow" --check <file-or-folder>
 if let i = CommandLine.arguments.firstIndex(of: "--check"), CommandLine.arguments.count > i + 1 {
     let found = resolve([URL(fileURLWithPath: CommandLine.arguments[i + 1])])
     precondition(!found.files.isEmpty, "no images found")

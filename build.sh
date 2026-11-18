@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP="build/Fastest Slideshow.app"
-BIN="$APP/Contents/MacOS/FastestSlideshow"
+BIN="$APP/Contents/MacOS/Fastest Slideshow"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
 ZIP="builds/FastestSlideshow-$VERSION.zip"
 
