@@ -109,6 +109,34 @@ func metadata(_ u: URL, position: String) -> NSAttributedString {
     var line = [position, size]
     if let w = props["PixelWidth"], let h = props["PixelHeight"] { line.insert("\(fmt(w)) × \(fmt(h))", at: 1) }
     add(line.joined(separator: "  ·  ") + "\n", [.font: mono(11), .foregroundColor: dim])
+
+    // Key fields first, always shown so the layout stays put from image to image.
+    let iptc = props["{IPTC}"] as? [String: Any] ?? [:]
+    let gps = props["{GPS}"] as? [String: Any] ?? [:]
+    let caption = [iptc["Caption/Abstract"], tiff["ImageDescription"], exif["UserComment"]]
+        .compactMap { $0 as? String }.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    let exifDate = DateFormatter()  // EXIF stores "2024:01:26 21:10:32", camera-local time
+    exifDate.dateFormat = "yyyy:MM:dd HH:mm:ss"
+    exifDate.locale = Locale(identifier: "en_US_POSIX")
+    let date = [exif["DateTimeOriginal"], exif["DateTimeDigitized"], tiff["DateTime"]]
+        .compactMap { ($0 as? String).flatMap(exifDate.date) }.first ?? rv?.contentModificationDate
+    var place = ["SubLocation", "City", "Province/State", "Country/PrimaryLocationName"]
+        .compactMap { iptc[$0] as? String }.filter { !$0.isEmpty }
+    if let lat = gps["Latitude"] as? Double, let lon = gps["Longitude"] as? Double {
+        place.append(String(format: "%.5f° %@, %.5f° %@", lat, gps["LatitudeRef"] as? String ?? "",
+                            lon, gps["LongitudeRef"] as? String ?? ""))
+    }
+    let keywords = (iptc["Keywords"] as? [Any])?.map(fmt).joined(separator: ", ")
+    let labelStyle = NSMutableParagraphStyle()
+    labelStyle.paragraphSpacingBefore = 12
+    for (label, value) in [
+        ("Caption", caption), ("Date", date?.formatted(date: .complete, time: .standard)),
+        ("Location", place.isEmpty ? nil : place.joined(separator: ", ")), ("Keywords", keywords),
+    ] {
+        add(label.uppercased() + "\n", [.font: mono(10, .bold), .foregroundColor: cyan, .kern: 2, .paragraphStyle: labelStyle])
+        add((value ?? "—") + "\n", [.font: mono(13), .foregroundColor: value == nil ? dim : white])
+    }
+
     let camera = [tiff["Model"], exif["LensModel"]].compactMap { $0 as? String }
     if !camera.isEmpty {
         add("\n" + camera.joined(separator: "  ·  ") + "\n", [.font: mono(12), .foregroundColor: white])
@@ -135,6 +163,8 @@ func metadata(_ u: URL, position: String) -> NSAttributedString {
             section(k.trimmingCharacters(in: CharacterSet(charactersIn: "{}")), rows(sub))
         }
     }
+    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    add("FASTEST SLIDESHOW v\(version)\n", [.font: mono(10), .foregroundColor: dim, .kern: 2, .paragraphStyle: headStyle])
     return out
 }
 
@@ -155,6 +185,8 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var fullScreen = true
     var showInfo = false
     var timer: Timer?
+    var panel: NSOpenPanel?
+    let badge = NSTextField(labelWithString: "")
     let cache = NSCache<NSURL, CGImage>()
     let decodeQueue = OperationQueue()
     let slideSeconds = 3.0
@@ -165,6 +197,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         decodeQueue.maxConcurrentOperationCount = 2
         buildMenu()
         buildWindow()
+        NSApp.servicesProvider = self
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [unowned self] in self.key($0) ? nil : $0 }
         // Command line: FastestSlideshow [--info] <file-or-folder>...
         showInfo = CommandLine.arguments.contains("--info")
@@ -177,9 +210,16 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func application(_ application: NSApplication, open urls: [URL]) { open(urls) }
 
+    /// Finder right-click > Services > "Open in Fastest Slideshow" (declared under NSServices in Info.plist).
+    @objc func openService(_ pboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString>) {
+        let urls = pboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
+        open(urls ?? [])
+    }
+
     func buildMenu() {
         let main = NSMenu()
         let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "About Fastest Slideshow", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(withTitle: "Quit Fastest Slideshow", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "Open…", action: #selector(openPanel), keyEquivalent: "o")
@@ -229,20 +269,38 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         sidebar.addSubview(edge)
         window.contentView?.addSubview(imageView)
         window.contentView?.addSubview(sidebar)
+
+        badge.font = mono(72, .bold)
+        badge.textColor = cyan
+        badge.drawsBackground = true
+        badge.backgroundColor = NSColor(white: 0, alpha: 0.6)
+        badge.wantsLayer = true
+        badge.layer?.cornerRadius = 18
+        badge.layer?.masksToBounds = true
+        badge.alphaValue = 0
+        window.contentView?.addSubview(badge)
     }
 
     // MARK: Open / close
 
     @objc func openPanel() {
+        guard panel == nil else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.image]
+        panel.message = "Choose a folder or images"
+        self.panel = panel
         NSApp.activate(ignoringOtherApps: true)
-        if panel.runModal() == .OK { open(panel.urls) }
+        // Not modal: a Finder open or service call arriving meanwhile dismisses it (see open()).
+        panel.begin { [unowned self] result in
+            self.panel = nil
+            if result == .OK { self.open(panel.urls) }
+        }
     }
 
     func open(_ urls: [URL]) {
+        panel?.cancel(nil)
         let found = resolve(urls)
         guard !found.files.isEmpty else { NSSound.beep(); return }
         stopPlaying()
@@ -292,6 +350,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         sidebar.isHidden = !showInfo
         sidebar.frame = NSRect(x: area.maxX - side, y: 0, width: side, height: area.height)
         imageView.frame = NSRect(x: 0, y: 0, width: area.width - side, height: area.height)
+        badge.setFrameOrigin(NSPoint(x: imageView.frame.midX - badge.frame.width / 2, y: imageView.frame.midY - badge.frame.height / 2))
     }
 
     // MARK: Display
@@ -331,7 +390,20 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func step(_ delta: Int) {
         let next = min(max(index + delta, 0), files.count - 1)
+        if abs(delta) > 1, next != index { flash(String(format: "%+d", next - index)) }
         if next != index { index = next; show() }
+    }
+
+    /// Show a jump size over the image: hold 0.5 s, then fade out over 0.25 s.
+    func flash(_ text: String) {
+        badge.stringValue = " \(text) "
+        badge.sizeToFit()
+        layout()
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [1, 1, 0]
+        fade.keyTimes = [0, 0.667, 1]  // 0.5 s of 0.75 s
+        fade.duration = 0.75
+        badge.layer?.add(fade, forKey: "flash")  // same key: a new jump restarts the timing
     }
 
     func stopPlaying() { timer?.invalidate(); timer = nil }
@@ -350,6 +422,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         switch e.keyCode {
         case 123: step(-jump)  // left
         case 124: step(jump)  // right
+        case 36, 76: fullScreen.toggle(); applyMode(on: window.screen)  // return, keypad enter
         case 53: closeImage()  // escape
         case 49: togglePlaying()  // space
         default:

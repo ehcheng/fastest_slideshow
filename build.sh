@@ -13,7 +13,9 @@ ZIP="builds/FastestSlideshow-$VERSION.zip"
 
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" builds
+mkdir -p "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/Info.plist"
+cp AppIcon.icns "$APP/Contents/Resources/"
 swiftc -Osize -wmo -swift-version 5 -target arm64-apple-macos13 \
   -Xlinker -dead_strip main.swift -o "$BIN"
 strip -x "$BIN"
