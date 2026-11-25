@@ -69,7 +69,7 @@ You need the Xcode command line tools. There is no Xcode project.
 
 The output is `builds/FastestSlideshow-<version>.zip`. `--release` reads signing credentials from `~/.vpm-signing.json` (`identity`, `appleId`, `password`, `teamId`), so you will need your own.
 
-The version lives in `Info.plist` (`CFBundleShortVersionString` and `CFBundleVersion`). `make_icon.swift` generates the icon; its first line says how to run it. `publish.sh` uploads the zip to my server and will not be useful to anyone else.
+The version lives in `Info.plist` (`CFBundleShortVersionString` and `CFBundleVersion`). `make_icon.swift` generates the icon; its first line says how to run it.
 
 There is a headless self-check that lists a folder, decodes an image, and prints its metadata:
 
