@@ -178,6 +178,10 @@ final class Window: NSWindow {  // borderless windows refuse key status by defau
 final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let window = Window(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: true)
     let imageView = NSView()
+    let imageLayer = CALayer()
+    var zoom: CGFloat = 1  // 1 = fit to window
+    var pan = CGPoint.zero  // image offset from centre, in points
+    var sharp = false  // full-resolution decode requested for the current image
     let sidebar = NSView()
     let scroll = NSTextView.scrollableTextView()
     var files: [URL] = []
@@ -205,6 +209,14 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         buildWindow()
         NSApp.servicesProvider = self
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [unowned self] in self.key($0) ? nil : $0 }
+        NSEvent.addLocalMonitorForEvents(matching: .leftMouseDragged) { [unowned self] e in
+            if e.window === self.window, self.zoom > 1 {
+                self.pan.x += e.deltaX
+                self.pan.y -= e.deltaY  // layer y points up
+                self.applyZoom()
+            }
+            return e
+        }
         NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown]) { [unowned self] e in
             if e.window === self.window, !self.files.isEmpty { self.showControls() }
             return e
@@ -248,10 +260,14 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.backgroundColor = .black
         window.appearance = NSAppearance(named: .darkAqua)
 
-        let layer = CALayer()  // layer-hosting: we own the contents, so kill the implicit crossfade
-        layer.contentsGravity = .resizeAspect
-        layer.minificationFilter = .trilinear
-        layer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        // Layer-hosting: we own the contents, so kill the implicit crossfade.
+        // The image sits in a sublayer so zoom and pan are one transform, clipped by the host.
+        imageLayer.contentsGravity = .resizeAspect
+        imageLayer.minificationFilter = .trilinear
+        imageLayer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "transform": NSNull()]
+        let layer = CALayer()
+        layer.masksToBounds = true
+        layer.addSublayer(imageLayer)
         imageView.layer = layer
         imageView.wantsLayer = true
 
@@ -348,7 +364,8 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ("→  J", "Next image"), ("←  K", "Previous image"), ("Shift or Ctrl + ← →", "Skip 10 images"),
             ("S  Space", "Play / pause slideshow"), ("A  D", "Fewer / more seconds per image"),
             ("F  Enter", "Toggle full screen"), ("I", "Image info sidebar"), ("?", "This sheet"),
-            ("Esc", "Close image"), ("⌘O  ⌘Q", "Open / quit"),
+            ("+  -", "Zoom in / out"), ("Drag  I J K L", "Pan while zoomed"), ("0  Ctrl+0", "Fit to window"),
+            ("Esc", "Fit to window, then close"), ("⌘O  ⌘Q", "Open / quit"),
         ] {
             // Monospaced font, so space padding makes the columns.
             text.append(NSAttributedString(string: keys.padding(toLength: 23, withPad: " ", startingAt: 0),
@@ -408,7 +425,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stopPlaying()
         decodeQueue.cancelAllOperations()
         files = []
-        imageView.layer?.contents = nil
+        imageLayer.contents = nil
         NSApp.presentationOptions = []
         hideTimer?.invalidate()
         controls.isHidden = true
@@ -444,6 +461,9 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         sidebar.isHidden = !showInfo
         sidebar.frame = NSRect(x: area.maxX - side, y: 0, width: side, height: area.height)
         imageView.frame = NSRect(x: 0, y: 0, width: area.width - side, height: area.height)
+        imageLayer.bounds = imageView.bounds
+        imageLayer.position = CGPoint(x: imageView.bounds.midX, y: imageView.bounds.midY)
+        applyZoom()  // re-clamp the pan to the new size
         badge.setFrameOrigin(NSPoint(x: imageView.frame.midX - badge.frame.width / 2, y: imageView.frame.midY - badge.frame.height / 2))
         let size = controls.fittingSize
         controls.frame = NSRect(x: imageView.frame.maxX - size.width - 28, y: 28, width: size.width, height: size.height)
@@ -462,8 +482,10 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
             text.scrollToBeginningOfDocument(nil)
         }
         NSCursor.setHiddenUntilMouseMoves(true)
+        (zoom, pan, sharp) = (1, .zero, false)  // every image starts at fit
 
-        if let hit = cache.object(forKey: url as NSURL) { imageView.layer?.contents = hit }
+        if let hit = cache.object(forKey: url as NSURL) { imageLayer.contents = hit }
+        applyZoom()
         // Drop decodes queued for images already skipped past, then load current plus neighbours.
         decodeQueue.cancelAllOperations()
         let maxPixel = Int(NSScreen.screens.map { max($0.frame.width, $0.frame.height) * $0.backingScaleFactor }.max() ?? 4096)
@@ -477,12 +499,64 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if let image { self.cache.setObject(image, forKey: u as NSURL) }
                 DispatchQueue.main.async {
                     if self.files.indices.contains(self.index), self.files[self.index] == u {
-                        self.imageView.layer?.contents = image  // nil (black) if undecodable
+                        self.imageLayer.contents = image  // nil (black) if undecodable
+                        self.applyZoom()
                     }
                 }
             }
             decodeQueue.addOperation(op)
         }
+    }
+
+    // MARK: Zoom
+
+    /// How far the image may move from centre on each axis before its edge would leave the view edge.
+    func panLimit(view: CGSize, image: CGSize, zoom: CGFloat) -> CGSize {
+        let fit = min(view.width / image.width, view.height / image.height) * zoom
+        return CGSize(width: max(0, (image.width * fit - view.width) / 2), height: max(0, (image.height * fit - view.height) / 2))
+    }
+
+    func applyZoom() {
+        let view = imageView.bounds.size
+        var size = view
+        if let contents = imageLayer.contents {
+            let image = contents as! CGImage  // only CGImages are ever assigned
+            size = CGSize(width: image.width, height: image.height)
+        }
+        if view.width > 0, view.height > 0 {
+            let limit = panLimit(view: view, image: size, zoom: zoom)
+            pan.x = min(max(pan.x, -limit.width), limit.width)
+            pan.y = min(max(pan.y, -limit.height), limit.height)
+        }
+        imageLayer.setAffineTransform(CGAffineTransform(translationX: pan.x, y: pan.y).scaledBy(x: zoom, y: zoom))
+    }
+
+    func setZoom(_ value: CGFloat) {
+        let old = zoom
+        zoom = min(max(value, 1), 32)
+        if zoom < 1.01 { zoom = 1 }  // float drift from repeated steps must still land on fit, so Esc closes
+        pan = CGPoint(x: pan.x * zoom / old, y: pan.y * zoom / old)  // keep the view centre fixed
+        applyZoom()
+        guard zoom > 1, !sharp, files.indices.contains(index) else { return }
+        // The cached image is downsampled to screen size; swap in every pixel once zoomed.
+        // Not cached: one full image can be hundreds of MB, and the layer already holds it.
+        sharp = true
+        let u = files[index]
+        decodeQueue.addOperation { [unowned self] in
+            guard let image = decode(u, maxPixel: 1 << 16) else { return }
+            DispatchQueue.main.async {
+                if self.sharp, self.files.indices.contains(self.index), self.files[self.index] == u {
+                    self.imageLayer.contents = image
+                }
+            }
+        }
+    }
+
+    /// Move the viewport by an eighth of the view; the image moves the other way.
+    func scrollView(_ dx: CGFloat, _ dy: CGFloat) {
+        pan.x -= dx * imageView.bounds.width / 8
+        pan.y -= dy * imageView.bounds.height / 8
+        applyZoom()
     }
 
     func step(_ delta: Int) {
@@ -559,9 +633,17 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case 123: step(-jump)  // left
         case 124: step(jump)  // right
         case 36, 76: fullScreen.toggle(); applyMode(on: window.screen)  // return, keypad enter
-        case 53: closeImage()  // escape
+        case 53: zoom > 1 ? setZoom(1) : closeImage()  // escape
         default:
             switch e.charactersIgnoringModifiers?.lowercased() {
+            case "=", "+": setZoom(zoom * 1.5)
+            case "-": setZoom(zoom / 1.5)
+            case "0": setZoom(1)
+            // I J K L scroll the viewport while zoomed (y points up); at fit they keep their old jobs.
+            case "i" where zoom > 1: scrollView(0, 1)
+            case "k" where zoom > 1: scrollView(0, -1)
+            case "j" where zoom > 1: scrollView(-1, 0)
+            case "l" where zoom > 1: scrollView(1, 0)
             case "j": step(jump)
             case "k": step(-jump)
             case "f": fullScreen.toggle(); applyMode(on: window.screen)
@@ -586,6 +668,16 @@ if let i = CommandLine.arguments.firstIndex(of: "--check"), CommandLine.argument
     let url = found.files[found.start]
     guard let image = decode(url, maxPixel: 512) else { fatalError("decode failed: \(url.path)") }
     precondition(max(image.width, image.height) <= 512, "downsample ignored")
+    if let full = decode(url, maxPixel: 1 << 16), let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+       let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+       let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int {
+        precondition(max(full.width, full.height) == max(w, h), "zoom decode is not full resolution")
+        print("full decode \(full.width)x\(full.height)")
+    }
+    let app = App()
+    let limit = app.panLimit(view: CGSize(width: 100, height: 100), image: CGSize(width: 200, height: 100), zoom: 4)
+    precondition(limit == CGSize(width: 150, height: 50), "pan limit wrong")
+    precondition(app.panLimit(view: CGSize(width: 100, height: 100), image: CGSize(width: 200, height: 100), zoom: 1) == .zero, "fit must not pan")
     print("\(found.files.count) images, start \(found.start), decoded \(image.width)x\(image.height)")
     print(metadata(url, position: "\(found.start + 1) / \(found.files.count)").string)
     exit(0)

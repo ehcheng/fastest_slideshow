@@ -16,7 +16,10 @@ Opens a folder or image full screen on the first image, paused.
 | `s` / Space | Play / pause slideshow (loops; starts paused) |
 | `a` / `d` | Fewer / more seconds per image (default 4, remembered) |
 | `?` | Shortcut sheet with credit and version |
-| Escape | Close the image (app keeps running) |
+| `+` / `=` / `-` | Zoom in / out (loads the full-resolution image) |
+| Drag, or `i` `j` `k` `l` | Pan while zoomed (at fit, `i` `j` `k` keep the jobs above) |
+| `0` / Control-0 | Back to fit |
+| Escape | Back to fit if zoomed; otherwise close the image (app keeps running) |
 | Cmd-O / Cmd-Q | Open / quit |
 
 Moving the mouse shows a play / pause control in the lower right for 2 seconds;
