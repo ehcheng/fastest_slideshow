@@ -205,7 +205,9 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let help = NSView()
     let sidebarWidth: CGFloat = 440
 
-    func applicationDidFinishLaunching(_ note: Notification) {
+    /// Everything is built here, not in didFinishLaunching: when Finder launches the app to open a file,
+    /// application(_:open:) arrives between the two, and the window must already exist by then.
+    func applicationWillFinishLaunching(_ note: Notification) {
         cache.countLimit = 8
         decodeQueue.maxConcurrentOperationCount = 2
         buildMenu()
@@ -224,6 +226,9 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if e.window === self.window, !self.files.isEmpty { self.showControls() }
             return e
         }
+    }
+
+    func applicationDidFinishLaunching(_ note: Notification) {
         // Command line: "Fastest Slideshow" [--info] <file-or-folder>...
         showInfo = CommandLine.arguments.contains("--info")
         let paths = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") && FileManager.default.fileExists(atPath: $0) }

@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.3.3 (November 25, 2026)
+
+Fixed the metadata sidebar being blank when the app was launched by opening an image or folder from Finder. It only worked if the app was already running, or was started from Terminal. This bug has been there since 1.0.0.
+
 ## 1.3.2 (November 25, 2026)
 
 Moving past the last image now rolls over to the first, and moving back from the first image goes to the last. Before this version, the app stopped at either end. Skipping 10 images rolls over the same way.
