@@ -10,7 +10,7 @@ https://echeng.com/f/FastestSlideshow.zip
 
 That URL always has the latest version. Unzip it and drag Fastest Slideshow into /Applications.
 
-Note that the app is signed with my Developer ID but is not notarized yet, so macOS will refuse to open it the first time. Try to open it once, then go to System Settings -> Privacy & Security, scroll down, and click "Open Anyway." You only have to do this once.
+The app is signed with my Developer ID and notarized by Apple, so it opens without a Gatekeeper warning.
 
 ## Using it
 
