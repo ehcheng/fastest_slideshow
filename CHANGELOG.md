@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.3.2 (November 25, 2026)
+
+Moving past the last image now rolls over to the first, and moving back from the first image goes to the last. Before this version, the app stopped at either end. Skipping 10 images rolls over the same way.
+
 ## 1.3.1 (November 25, 2026)
 
 The zoom keys also work with Cmd or Control held down: Cmd-= and Cmd-- zoom in and out, and Cmd-0 goes back to fit, like they do in most Mac apps.

@@ -28,6 +28,9 @@ func resolve(_ urls: [URL]) -> (files: [URL], start: Int) {
     return (urls.flatMap { isDir($0) ? imagesIn($0) : (isImage($0) ? [$0] : []) }, 0)
 }
 
+/// Index folded into 0..<count, so stepping past either end rolls over. Swift's % keeps the sign.
+func wrap(_ i: Int, _ count: Int) -> Int { ((i % count) + count) % count }
+
 /// Decode downsampled to screen size with EXIF orientation applied. Far faster than a full decode.
 func decode(_ u: URL, maxPixel: Int) -> CGImage? {
     guard let src = CGImageSourceCreateWithURL(u as CFURL, nil) else { return nil }
@@ -560,8 +563,8 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func step(_ delta: Int) {
-        let next = min(max(index + delta, 0), files.count - 1)
-        if abs(delta) > 1, next != index { flash(String(format: "%+d", next - index)) }
+        let next = wrap(index + delta, files.count)  // past either end rolls over to the other
+        if abs(delta) > 1, next != index { flash(String(format: "%+d", delta)) }
         if next != index { index = next; show() }
     }
 
@@ -677,6 +680,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--check"), CommandLine.argument
         precondition(max(full.width, full.height) == max(w, h), "zoom decode is not full resolution")
         print("full decode \(full.width)x\(full.height)")
     }
+    precondition(wrap(5, 5) == 0 && wrap(-1, 5) == 4 && wrap(-11, 5) == 4 && wrap(3, 5) == 3, "wrap wrong")
     let app = App()
     let limit = app.panLimit(view: CGSize(width: 100, height: 100), image: CGSize(width: 200, height: 100), zoom: 4)
     precondition(limit == CGSize(width: 150, height: 50), "pan limit wrong")

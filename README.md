@@ -18,8 +18,8 @@ If you open a single image, you get that image and can browse the rest of its fo
 
 | Key | What it does |
 | --- | --- |
-| Right / `J` | Next image |
-| Left / `K` | Previous image |
+| Right / `J` | Next image (the last image rolls over to the first) |
+| Left / `K` | Previous image (the first image rolls over to the last) |
 | Shift or Control + Left / Right / `J` / `K` | Skip 10 images (flashes `+10` or `-10`) |
 | `S` / Space | Play or pause the slideshow (it loops at the end) |
 | `A` / `D` | Fewer / more seconds per image (default 4, remembered) |
