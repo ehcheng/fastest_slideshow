@@ -364,7 +364,7 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ("→  J", "Next image"), ("←  K", "Previous image"), ("Shift or Ctrl + ← →", "Skip 10 images"),
             ("S  Space", "Play / pause slideshow"), ("A  D", "Fewer / more seconds per image"),
             ("F  Enter", "Toggle full screen"), ("I", "Image info sidebar"), ("?", "This sheet"),
-            ("+  -", "Zoom in / out"), ("Drag  I J K L", "Pan while zoomed"), ("0  Ctrl+0", "Fit to window"),
+            ("+  -  (or ⌘ / Ctrl)", "Zoom in / out"), ("Drag  I J K L", "Pan while zoomed"), ("0  ⌘0  Ctrl+0", "Fit to window"),
             ("Esc", "Fit to window, then close"), ("⌘O  ⌘Q", "Open / quit"),
         ] {
             // Monospaced font, so space padding makes the columns.
@@ -626,7 +626,10 @@ final class App: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Returns true if the key was handled.
     func key(_ e: NSEvent) -> Bool {
-        guard e.window === window, !files.isEmpty, !e.modifierFlags.contains(.command) else { return false }
+        guard e.window === window, !files.isEmpty else { return false }
+        // Command belongs to the menu, except the standard zoom keys: Cmd = / + / - / 0.
+        if e.modifierFlags.contains(.command),
+           !["=", "+", "-", "0"].contains(e.charactersIgnoringModifiers ?? "") { return false }
         if !help.isHidden { help.isHidden = true; return true }  // any key dismisses the sheet
         let jump = e.modifierFlags.intersection([.control, .shift]).isEmpty ? 1 : 10
         switch e.keyCode {

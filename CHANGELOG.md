@@ -1,5 +1,9 @@
 # Release notes
 
+## 1.3.1 (November 25, 2026)
+
+The zoom keys also work with Cmd or Control held down: Cmd-= and Cmd-- zoom in and out, and Cmd-0 goes back to fit, like they do in most Mac apps.
+
 ## 1.3.0 (November 25, 2026)
 
 Added zoom. `+` and `-` zoom in and out in 1.5x steps, up to 32x. Drag with the mouse or use `I` `J` `K` `L` to move around while zoomed. `0`, Control-0, and Escape go back to fit, and Escape from fit still closes the image.

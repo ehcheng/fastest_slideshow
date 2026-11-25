@@ -25,9 +25,9 @@ If you open a single image, you get that image and can browse the rest of its fo
 | Shift or Control + Left / Right / `J` / `K` | Skip 10 images (flashes `+10` or `-10`) |
 | `S` / Space | Play or pause the slideshow (it loops at the end) |
 | `A` / `D` | Fewer / more seconds per image (default 4, remembered) |
-| `+` / `=` / `-` | Zoom in / out |
+| `+` / `=` / `-` (alone, or with Cmd or Control) | Zoom in / out |
 | Drag, or `I` `J` `K` `L` | Move around while zoomed |
-| `0` / Control-0 | Back to fit |
+| `0` / Cmd-0 / Control-0 | Back to fit |
 | `F` / Enter | Toggle full screen |
 | `I` | Toggle the metadata sidebar |
 | `?` | Show the list of shortcuts |
