@@ -6,9 +6,7 @@ It is one Swift file with no dependencies, and the download is about 130 KB. It 
 
 ## Download
 
-https://echeng.com/f/FastestSlideshow.zip
-
-That URL always has the latest version. Unzip it and drag Fastest Slideshow into /Applications.
+Get the zip from the [latest release](https://github.com/ehcheng/fastest_slideshow/releases/latest). Unzip it and drag Fastest Slideshow into /Applications.
 
 The app is signed with my Developer ID and notarized by Apple, so it opens without a Gatekeeper warning.
 
@@ -49,6 +47,8 @@ Control + arrow keys are Mission Control shortcuts by default in macOS. If they 
 Finder does not offer "Open With" for folders, so the app registers a service instead. Right-click a folder -> Services (or Quick Actions) -> "Open in Fastest Slideshow." The service appears after the app is in /Applications and has been launched once. If it is missing, enable it in System Settings -> Keyboard -> Keyboard Shortcuts -> Services -> Files and Folders. You can give it a keyboard shortcut there, too.
 
 For a single image, right-click -> Open With -> Fastest Slideshow (the service works for images as well).
+
+To make Fastest Slideshow the default app for a type of image, select a file of that type in Finder, press Cmd-I (Get Info), choose Fastest Slideshow under "Open with," and click "Change All..." After that, double-clicking an image opens it full screen with the rest of its folder ready to browse. You have to do this once per file type (JPEG, HEIC, PNG, and so on).
 
 You can also drag a folder or images onto the app icon in the Dock, or use Terminal:
 
